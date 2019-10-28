@@ -169,16 +169,15 @@ class RestrictedRoleOperator:
         # Disable SSL warnings: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#ssl-warnings
         urllib3.disable_warnings()
 
-        #if 'KUBERNETES_PORT' in os.environ:
-        #    kubernetes.config.load_incluster_config()
-        #else:
-        #    kubernetes.config.load_kube_config()
+        if 'KUBERNETES_PORT' in os.environ:
+           kubernetes.config.load_incluster_config()
+        else:
+           kubernetes.config.load_kube_config()
 
-        #configuration = kubernetes.client.Configuration()
-        #kubernetes_client = kubernetes.client.api_client.ApiClient(configuration=configuration)
+        configuration = kubernetes.client.Configuration()
+        kubernetes_client = kubernetes.client.api_client.ApiClient(configuration=configuration)
         # self.core_v1_api = kubernetes.client.CoreV1Api(api_client)
         # self.custom_objects_api = kubernetes.client.CustomObjectsApi(api_client)
-        kubernetes_client = config.new_client_from_config()
         self.openshift_client = openshift.dynamic.DynamicClient(kubernetes_client)
 
 
