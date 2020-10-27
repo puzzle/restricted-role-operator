@@ -33,7 +33,7 @@ def dumpstacks(signal, frame):
 
 
 class AbstractWatcher(threading.Thread):
-    def __init__(self, resource_client, namespace = None): #, timeout = None):
+    def __init__(self, resource_client, namespace = None, label_selector = None): #, timeout = None):
         name = self.__class__.__name__
         if namespace:
             name += f"_{namespace}"
@@ -41,6 +41,7 @@ class AbstractWatcher(threading.Thread):
 
         self.resource_client = resource_client
         self.namespace = namespace
+        self.label_selector = label_selector
         #self.processed_resource_versions = {}
         #self.timeout = timeout
         self._request_stop = False
@@ -52,17 +53,13 @@ class AbstractWatcher(threading.Thread):
         timeout = False
         while not self._request_stop:
             if not timeout:
-                resources = self.resource_client.get(namespace=self.namespace).to_dict()
+                resources = self.resource_client.get(namespace=self.namespace, label_selector=self.label_selector).to_dict()
                 self.reconcile_resources(resources)
                 self.resource_version = resources['metadata'].get('resourceVersion')
                 logging.info(f"Watching {self.resource_client.kind} in namespace '{self.namespace}' with resource version newer than '{self.resource_version}'")
-            # if self.resource_client.kind == 'Project':
-            #     print(yaml.dump(resources, default_flow_style=False, width=float("inf")))
 
             timeout = True
-            #for event in self._watcher.stream(self.resource_client.get, namespace=self.namespace, resource_version=resource_version, serialize=False): #, timeout_seconds=self.timeout):
-            for event in self.resource_client.watch(namespace=self.namespace, resource_version=self.resource_version, timeout=30):
-                #obj = benedict(event["raw_object"], keypath_separator=',')
+            for event in self.resource_client.watch(namespace=self.namespace, resource_version=self.resource_version, label_selector=self.label_selector, timeout=30):
                 obj = event["raw_object"]
                 operation = event['type']
                 if operation == 'ERROR':
@@ -84,7 +81,6 @@ class AbstractWatcher(threading.Thread):
 
     def reconcile_resources(self, resources):
         for resource in resources['items']:
-            #self.reconcile_resource(benedict(resource, keypath_separator=','), 'ADDED')
             self.reconcile_resource(resource, 'ADDED')
             #self.reconcile_resource(openshift.dynamic.client.ResourceInstance(self.resource, resource), 'ADDED')
 
@@ -132,8 +128,8 @@ class ClusterRoleWatcher(AbstractWatcher):
                     restricted_rules.append(rule)
 
             restricted_cluster_role = {
-                #'kind': 'ClusterRole',
-                #'apiVersion': cluster_role['apiVersion'],
+                'apiVersion': 'rbac.authorization.k8s.io/v1',
+                'kind': 'ClusterRole',
                 'metadata': {
                     'name': restricted_cluster_role_name
                 },
@@ -162,40 +158,36 @@ class RoleBindingWatcher(AbstractWatcher):
         super().__init__(self.v1_role_binding, namespace=namespace)
 
     def reconcile_resource(self, role_binding, operation):
-        #logging.info(f"Reconciling RoleBinding '{role_binding.metadata.name}'")
         if operation != 'DELETED' and not role_binding['roleRef'].get('namespace') and role_binding['roleRef']['name'] in ('admin', 'edit'):
-            #print(role_binding)
             role_binding_name = role_binding['metadata']['name']
             restricted_role_binding_name = 'restricted_' + role_binding_name
             logging.info(f"Reconciling RoleBinding '{restricted_role_binding_name}' in namespace '{self.namespace}'")
-            # role_binding.metadata.name = restricted_role_binding_name
-            # role_binding.roleRef.name = 'restricted_' + role_binding.roleRef.name
-            # role_binding.metadata.resourceVersion = None
-            # role_binding.metadata.uid = None
-            # role_binding.userNames = None
 
             # Read current restricted subjects
             try:
-                restricted_subjects = self.v1_role_binding.get(namespace=self.namespace, name=restricted_role_binding_name).to_dict()['subjects'] or []
+                restricted_role_binding = self.v1_role_binding.get(namespace=self.namespace, name=restricted_role_binding_name).to_dict()
+                restricted_subjects = restricted_role_binding['subjects'] or []
             except openshift.dynamic.exceptions.NotFoundError:
                 restricted_subjects = []
+                restricted_role_binding = {}
 
             subjects = []
             for subject in role_binding['subjects']:
-                if subject['name'].startswith('pitc-'):
-                    subjects.append(subject)
-                elif subject not in restricted_subjects:
+                # if subject['name'].startswith('pitc-'):
+                #     subjects.append(subject)
+                if subject not in restricted_subjects:
                     restricted_subjects.append(subject)
 
             if restricted_subjects:
                 restricted_role_binding = {
-                    #'apiVersion': 'authorization.openshift.io/v1',
-                    #'kind': 'RoleBinding',
+                    'apiVersion': 'rbac.authorization.k8s.io/v1',
+                    'kind': 'RoleBinding',
                     'metadata': {
                         'namespace': self.namespace,
                         'name': restricted_role_binding_name
                     },
                     'roleRef': {
+                        'apiVersion': 'rbac.authorization.k8s.io/v1',
                         'kind': 'ClusterRole',
                         'name': 'restricted_' + role_binding['roleRef']['name']
                     },
@@ -206,13 +198,14 @@ class RoleBindingWatcher(AbstractWatcher):
 
             if subjects:
                 role_binding = {
-                    #'apiVersion': 'authorization.openshift.io/v1',
-                    #'kind': 'RoleBinding',
+                    'apiVersion': 'rbac.authorization.k8s.io/v1',
+                    'kind': 'RoleBinding',
                     'metadata': {
                         'namespace': self.namespace,
                         'name': role_binding_name
                     },
                     'roleRef': {
+                        'apiVersion': 'rbac.authorization.k8s.io/v1',
                         'kind': 'ClusterRole',
                         'name': role_binding['roleRef']['name']
                     },
@@ -235,24 +228,25 @@ class RoleBindingWatcher(AbstractWatcher):
 
 class ProjectWatcher(AbstractWatcher):
 
-    PROJECT_REGEX = re.compile('[a-z0-9]+-.+-(production|integration|development|test)')
-
-    def __init__(self, openshift_client):
+    def __init__(self, openshift_client, namespace_filter, label_selector=None):
         self.openshift_client = openshift_client
+        self.namespace_filter = re.compile(namespace_filter)
         self.v1_project = openshift_client.resources.get(group='project.openshift.io', api_version='v1', kind='Project')
-        super().__init__(self.v1_project)
+        super().__init__(self.v1_project, label_selector=label_selector)
 
     def reconcile_resource(self, project, operation):
         namespace = project['metadata']['name']
-        if operation == 'ADDED' and self.PROJECT_REGEX.match(namespace):
-            if not f"RoleBindingWatcher_{namespace}" in (thread.name for thread in threading.enumerate()):
-                role_binding_watcher = RoleBindingWatcher(self.openshift_client, namespace=namespace)
-                role_binding_watcher.start()
-        elif operation == 'DELETED':
-            thread = [thread for thread in threading.enumerate() if thread.name == f"RoleBindingWatcher_{namespace}"]
-            if thread:
-                thread[0].stop()
-                thread[0].join()
+        if not self.namespace_filter.match(namespace):
+            return
+
+        watch = operation != 'DELETED' and project['metadata'].get('labels', {}).get('restricted-role-operator-exclude', "").lower() != 'true'
+        watcher = [thread for thread in threading.enumerate() if thread.name == f"RoleBindingWatcher_{namespace}"]
+        if watch and not watcher:
+            watcher = RoleBindingWatcher(self.openshift_client, namespace=namespace)
+            watcher.start()
+        elif not watch and watcher:
+            watcher[0].stop()
+            watcher[0].join()
                 #print(threading.enumerate())
 
 
@@ -263,6 +257,10 @@ class RestrictedRoleOperator:
 
         # Disable SSL warnings: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#ssl-warnings
         urllib3.disable_warnings()
+
+        self.namespace_filter = os.getenv('NAMESPACE_FILTER')
+        if not self.namespace_filter:
+            raise RuntimeError("'NAMESPACE_FILTER' environment variable must be set to namespace filter regex!")
 
         if 'KUBERNETES_PORT' in os.environ:
            kubernetes.config.load_incluster_config()
@@ -286,7 +284,7 @@ class RestrictedRoleOperator:
 
         # v1_project = self.openshift_client.resources.get(group='project.openshift.io', api_version='v1', kind='Project')
         #project_list = dyn_client.resources.get(api_version='project.openshift.io/v1', kind='Project').get()
-        project_watcher = ProjectWatcher(self.openshift_client)
+        project_watcher = ProjectWatcher(self.openshift_client, self.namespace_filter)
         project_watcher.start()
         #namespaces = {project.metadata.name for project in project_list.items}
 
