@@ -42,11 +42,8 @@ class AbstractWatcher(threading.Thread):
         self.resource_client = resource_client
         self.namespace = namespace
         self.label_selector = label_selector
-        #self.processed_resource_versions = {}
-        #self.timeout = timeout
         self._request_stop = False
         self.resource_version = None
-        #self._watcher = kubernetes.watch.Watch()
 
     def run(self):
         # https://kubernetes.io/docs/reference/using-api/api-concepts/#efficient-detection-of-changes
@@ -82,22 +79,6 @@ class AbstractWatcher(threading.Thread):
     def reconcile_resources(self, resources):
         for resource in resources['items']:
             self.reconcile_resource(resource, 'ADDED')
-            #self.reconcile_resource(openshift.dynamic.client.ResourceInstance(self.resource, resource), 'ADDED')
-
-    # def do_reconcile_resource(self, resource, operation):
-    #     print(f"{resource['metadata']['name']} {operation}")
-    #     resource_version = resource['metadata'].get('resourceVersion')
-    #     if resource_version in self.processed_resource_versions.values():
-    #         #print(f"Filtered {resource['metadata']['name']} {operation}")
-    #         return
-
-    #     resource_name = f"{resource['metadata'].get('namespace', '')}/{resource['metadata']['name']}"
-    #     if operation == 'DELETED':
-    #         del self.processed_resource_versions[resource_name]
-    #     else:
-    #         self.processed_resource_versions[resource_name] = resource_version
-
-    #     self.reconcile_resource(resource, operation)
 
 
 class ClusterRoleWatcher(AbstractWatcher):
@@ -107,14 +88,9 @@ class ClusterRoleWatcher(AbstractWatcher):
         super().__init__(self.v1_cluster_role)
 
     def reconcile_resource(self, cluster_role, operation):
-        # if operation == 'DELETED' and cluster_role['metadata']['name'] in ('restricted_admin', 'restricted_edit'):
-        #     restricted_cluster_role_name = cluster_role['metadata']['name']
-        #     cluster_role_name = restricted_cluster_role_name.partition('_')[0]
         if operation != 'DELETED' and cluster_role['metadata']['name'] in ('admin', 'edit'):
             cluster_role_name = cluster_role['metadata']['name']
             restricted_cluster_role_name = 'restricted_' + cluster_role_name
-        # else:
-        #     return
 
             logging.info(f"Reconciling ClusterRole '{restricted_cluster_role_name}'")
 
@@ -136,19 +112,7 @@ class ClusterRoleWatcher(AbstractWatcher):
                 'rules': restricted_rules #[rule for rule in cluster_role['rules'] if not any(apiGroup in rule['apiGroups'] for apiGroup in ('route.openshift.io', 'networking.k8s.io'))]
             }
 
-            #print(yaml.dump(restricted_cluster_role, default_flow_style=False, width=float("inf")))
-            #print(json.dumps(restricted_cluster_role))
-                #restricted_cluster_role['rules'] = [rule for rule in cluster_role.rules if not any(apiGroup in rule.apiGroups for apiGroup in ('route.openshift.io', 'networking.k8s.io'))]
-                #cluster_role.rules[:] = [rule for rule in cluster_role.rules if not any(apiGroup in rule.apiGroups for apiGroup in ('route.openshift.io', 'networking.k8s.io'))]
-                #cluster_role.metadata.resourceVersion = None
-                #cluster_role.metadata.uid = None
-                #cluster_role.metadata.annotations = []
-                #cluster_role.aggregationRule = None
-                #print(cluster_role)
-            #try:
             self.v1_cluster_role.apply(body=restricted_cluster_role)
-        #except Exception:
-        #    pass
 
 
 class RoleBindingWatcher(AbstractWatcher):
@@ -173,8 +137,6 @@ class RoleBindingWatcher(AbstractWatcher):
 
             subjects = []
             for subject in role_binding['subjects']:
-                # if subject['name'].startswith('pitc-'):
-                #     subjects.append(subject)
                 if subject not in restricted_subjects:
                     restricted_subjects.append(subject)
 
@@ -212,18 +174,9 @@ class RoleBindingWatcher(AbstractWatcher):
                     'subjects': subjects,
                     'userNames': None
                 }
-                #print(role_binding)
                 self.v1_role_binding.apply(body=role_binding)
             else:
                 self.v1_role_binding.delete(namespace=self.namespace, name=role_binding_name)
-            # restricted_role_binding['subjects'] = role_binding['subjects'] or []
-            # try:
-            #     old_restricted_role_binding = self.v1_role_binding.get(namespace=self.namespace, name=restricted_role_binding_name).to_dict()
-            #     old_restricted_subjects = old_restricted_role_binding['subjects'] or []
-            #     restricted_role_binding['subjects'] += [subject for subject in old_restricted_subjects if subject not in role_binding['subjects']]
-            # except openshift.dynamic.exceptions.NotFoundError:
-            #     pass
-            #print(json.dumps(role_binding))
 
 
 class ProjectWatcher(AbstractWatcher):
@@ -247,7 +200,6 @@ class ProjectWatcher(AbstractWatcher):
         elif not watch and watcher:
             watcher[0].stop()
             watcher[0].join()
-                #print(threading.enumerate())
 
 
 
@@ -271,24 +223,16 @@ class RestrictedRoleOperator:
 
         configuration = kubernetes.client.Configuration()
         kubernetes_client = kubernetes.client.api_client.ApiClient(configuration=configuration)
-        # self.core_v1_api = kubernetes.client.CoreV1Api(api_client)
-        # self.custom_objects_api = kubernetes.client.CustomObjectsApi(api_client)
         self.openshift_client = openshift.dynamic.DynamicClient(kubernetes_client)
 
 
     def run(self):
-        # v1_cluster_role = self.openshift_client.resources.get(group='rbac.authorization.k8s.io', api_version='v1', kind='ClusterRole')
-        # v1_role_binding = self.openshift_client.resources.get(group='rbac.authorization.k8s.io', api_version='v1', kind='RoleBinding')
-        cluster_role_watcher = ClusterRoleWatcher(self.openshift_client)
-        #role_binding_watcher = RoleBindingWatcher(self.openshift_client, namespace='restricted-rule-operator')
-        cluster_role_watcher.start()
-        #role_binding_watcher.start()
+        # Disable for now
+        # cluster_role_watcher = ClusterRoleWatcher(self.openshift_client)
+        # cluster_role_watcher.start()
 
-        # v1_project = self.openshift_client.resources.get(group='project.openshift.io', api_version='v1', kind='Project')
-        #project_list = dyn_client.resources.get(api_version='project.openshift.io/v1', kind='Project').get()
         project_watcher = ProjectWatcher(self.openshift_client, self.namespace_filter)
         project_watcher.start()
-        #namespaces = {project.metadata.name for project in project_list.items}
 
 
 
