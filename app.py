@@ -230,7 +230,7 @@ class ProjectWatcher(AbstractWatcher):
 
     def __init__(self, openshift_client, namespace_filter, label_selector=None):
         self.openshift_client = openshift_client
-        self.namespace_filter = re.compile(namespace_filter)
+        self.namespace_filter = namespace_filter
         self.v1_project = openshift_client.resources.get(group='project.openshift.io', api_version='v1', kind='Project')
         super().__init__(self.v1_project, label_selector=label_selector)
 
@@ -258,8 +258,10 @@ class RestrictedRoleOperator:
         # Disable SSL warnings: https://urllib3.readthedocs.io/en/latest/advanced-usage.html#ssl-warnings
         urllib3.disable_warnings()
 
-        self.namespace_filter = os.getenv('NAMESPACE_FILTER')
-        if not self.namespace_filter:
+        namespace_filter = os.getenv('NAMESPACE_FILTER')
+        if namespace_filter:
+            self.namespace_filter = re.compile(namespace_filter)
+        else:
             raise RuntimeError("'NAMESPACE_FILTER' environment variable must be set to namespace filter regex!")
 
         if 'KUBERNETES_PORT' in os.environ:
