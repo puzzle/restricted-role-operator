@@ -62,4 +62,3 @@ spec:
       from:
         kind: ImageStreamTag
         name: restricted-role-operator:latest
-        #namespace: pitc-test-bb
