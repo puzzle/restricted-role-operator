@@ -1,0 +1,31 @@
+apiVersion: v1
+items:
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    labels:
+      app: restricted-role-operator
+    name: restricted-role-operator
+  spec:
+    lookupPolicy:
+      local: false
+- apiVersion: image.openshift.io/v1
+  kind: ImageStream
+  metadata:
+    name: restricted-role-operator-base
+  spec:
+    lookupPolicy:
+      local: false
+    tags:
+    - annotations: null
+      from:
+        kind: DockerImage
+        name: registry.access.redhat.com/rhscl/python-36-rhel7:latest
+      importPolicy: {}
+      name: latest
+      referencePolicy:
+        type: Source
+kind: List
+metadata:
+  resourceVersion: ""
+  selfLink: ""
