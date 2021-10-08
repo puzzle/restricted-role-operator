@@ -1,2 +1,2 @@
-openshift
-
+openshift==0.12.1
+kubernetes==11.0.0
