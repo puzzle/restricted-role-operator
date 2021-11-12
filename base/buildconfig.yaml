@@ -15,7 +15,7 @@ spec:
   runPolicy: Serial
   source:
     git:
-      uri: https://github.com/buehlmann/restricted-role-operator
+      uri: https://github.com/puzzle/restricted-role-operator
     type: Git
   strategy:
     sourceStrategy:
