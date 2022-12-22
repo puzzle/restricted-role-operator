@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import re
+import resource
 import signal
 import sys
 import threading
@@ -237,6 +238,11 @@ class RestrictedRoleOperator:
 
 
 if __name__ == "__main__":
-   signal.signal(signal.SIGUSR1, dumpstacks)
-   operator = RestrictedRoleOperator()
-   operator.run()
+    if os.path.isfile('/sys/fs/cgroup/memory/memory.limit_in_bytes'):  # Respect container memory limit
+        with open('/sys/fs/cgroup/memory/memory.limit_in_bytes') as limit:
+            mem = int(limit.read())
+            resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+
+    signal.signal(signal.SIGUSR1, dumpstacks)
+    operator = RestrictedRoleOperator()
+    operator.run()
