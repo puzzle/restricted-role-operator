@@ -2,3 +2,11 @@ commonLabels:
 - kind: DeploymentConfig
   path: spec/template/metadata/labels
   create: true
+
+nameReference:
+- kind: Secret
+  version: v1
+  fieldSpecs:
+  - path: secrets/name
+    version: v1
+    kind: ServiceAccount
