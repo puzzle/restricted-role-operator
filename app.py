@@ -216,12 +216,11 @@ class RestrictedRoleOperator:
         else:
             raise RuntimeError("'NAMESPACE_FILTER' environment variable must be set to namespace filter regex!")
 
-        if 'KUBERNETES_PORT' in os.environ:
-           kubernetes.config.load_incluster_config()
-        else:
-           kubernetes.config.load_kube_config()
-
         configuration = kubernetes.client.Configuration()
+        if 'KUBERNETES_PORT' in os.environ:
+           kubernetes.config.load_incluster_config(client_configuration=configuration)
+        else:
+           kubernetes.config.load_kube_config(client_configuration=configuration)
         kubernetes_client = kubernetes.client.api_client.ApiClient(configuration=configuration)
         self.openshift_client = openshift.dynamic.DynamicClient(kubernetes_client)
 
